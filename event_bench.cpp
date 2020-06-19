@@ -38,7 +38,7 @@ void record_events(std::vector<cudaEvent_t> &events, cudaStream_t stream) {
     cudaEventRecord(e, stream);
 }
 
-void query_events(std::vector<cudaEvent_t> &events, cudaStream_t stream) {
+void query_events(std::vector<cudaEvent_t> &events) {
   for (auto const &e : events)
     cudaEventQuery(e);
 }
@@ -147,16 +147,18 @@ static void BM_EventQuery(benchmark::State &state) {
   std::vector<cudaEvent_t> events(events_size);
   create_events<true>(events);
 
-  cudaStream_t stream = 0;
+  cudaStream_t streamA{};
+  cudaStreamCreate(&streamA);
 
-  record_events(events, stream);
+  record_events(events, streamA);
 
   for (auto _ : state) {
-    query_events(events, stream);
+    query_events(events);
   }
   state.SetItemsProcessed(state.iterations() * events_size);
 
   destroy_events(events);
+  cudaStreamDestroy(streamA);
   events.clear();
 }
 BENCHMARK_TEMPLATE(BM_EventQuery, true)->Unit(benchmark::kMicrosecond);
@@ -168,17 +170,20 @@ static void BM_StreamWaitEvent(benchmark::State &state) {
   std::vector<cudaEvent_t> events(events_size);
   create_events<true>(events);
 
-  cudaStream_t stream{};
-  cudaStreamCreate(&stream);
+  cudaStream_t streamA{}, streamB{};
+  cudaStreamCreate(&streamA);
+  cudaStreamCreate(&streamB);
 
-  record_events(events, stream);
+  record_events(events, streamA);
 
   for (auto _ : state) {
-    await_events(events, stream);
+    await_events(events, streamB);
   }
   state.SetItemsProcessed(state.iterations() * events_size);
 
   destroy_events(events);
+  cudaStreamDestroy(streamA);
+  cudaStreamDestroy(streamB);
   events.clear();
 }
 BENCHMARK_TEMPLATE(BM_StreamWaitEvent, true)->Unit(benchmark::kMicrosecond);
