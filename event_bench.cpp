@@ -43,6 +43,11 @@ void query_events(std::vector<cudaEvent_t> &events, cudaStream_t stream) {
     cudaEventQuery(e);
 }
 
+void await_events(std::vector<cudaEvent_t> &events, cudaStream_t stream) {
+  for (auto const &e : events)
+    cudaStreamWaitEvent(stream, e, 0);
+}
+
 template <typename Container> void destroy_events(Container events) {
   for (auto const &e : events)
     cudaEventDestroy(e);
@@ -156,6 +161,28 @@ static void BM_EventQuery(benchmark::State &state) {
 }
 BENCHMARK_TEMPLATE(BM_EventQuery, true)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_EventQuery, false)->Unit(benchmark::kMicrosecond);
+
+// Benchmark querying events with or without timing
+template <bool timing = true>
+static void BM_StreamWaitEvent(benchmark::State &state) {
+  std::vector<cudaEvent_t> events(events_size);
+  create_events<true>(events);
+
+  cudaStream_t stream{};
+  cudaStreamCreate(&stream);
+
+  record_events(events, stream);
+
+  for (auto _ : state) {
+    await_events(events, stream);
+  }
+  state.SetItemsProcessed(state.iterations() * events_size);
+
+  destroy_events(events);
+  events.clear();
+}
+BENCHMARK_TEMPLATE(BM_StreamWaitEvent, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_StreamWaitEvent, false)->Unit(benchmark::kMicrosecond);
 
 // Benchmark destroying events with or without timing
 template <bool timing = true>
