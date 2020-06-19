@@ -2,8 +2,20 @@ cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
 
 project(CUDA_EVENT_BENCH LANGUAGES C CXX CUDA)
 
+###################################################################################################
+# - build type ------------------------------------------------------------------------------------
+
 # Set a default build type if none was specified
 set(DEFAULT_BUILD_TYPE "Release")
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  message(STATUS "Setting build type to '${DEFAULT_BUILD_TYPE}' since none specified.")
+  set(CMAKE_BUILD_TYPE "${DEFAULT_BUILD_TYPE}" CACHE
+      STRING "Choose the type of build." FORCE)
+  # Set the possible values of build type for cmake-gui
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+    "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
+endif()
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,5 +54,5 @@ include_directories("${GBENCH_INCLUDE_DIR}" "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECT
 link_directories("${GBENCH_LIBRARY_DIR}" "${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES}")
 
 add_executable(cuda_event_bench event_bench.cpp)
-#set_target_properties(cuda_event_bench PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(cuda_event_bench PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(cuda_event_bench PRIVATE benchmark pthread "${CUDART_LIBRARY}" dl rt)
