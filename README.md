@@ -1,4 +1,4 @@
-# cuda_event_benchmark
+# CUDA Event Benchmarks
 
 Simple benchmarks of `cudaEvent_t` APIs:
 
