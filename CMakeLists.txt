@@ -50,6 +50,16 @@ endif(CUDA_STATIC_RUNTIME)
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules/" ${CMAKE_MODULE_PATH})
 include(ConfigureGoogleBenchmark)
 
+###################################################################################################
+# - per-thread default stream option --------------------------------------------------------------
+# This needs to be defined first so tests and benchmarks can inherit it.
+
+option(PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream" OFF)
+if(PER_THREAD_DEFAULT_STREAM)
+    message(STATUS "Using per-thread default stream")
+    add_compile_definitions(CUDA_API_PER_THREAD_DEFAULT_STREAM)
+endif(PER_THREAD_DEFAULT_STREAM)
+
 include_directories("${GBENCH_INCLUDE_DIR}" "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
 link_directories("${GBENCH_LIBRARY_DIR}" "${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES}")
 
