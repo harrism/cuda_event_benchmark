@@ -18,7 +18,9 @@
 
 #include <cuda_runtime_api.h>
 
+#include <iostream>
 #include <list>
+#include <thread>
 #include <vector>
 
 constexpr std::size_t events_size{1000};
@@ -58,7 +60,6 @@ template <bool timing = true> struct event_pool {
   ~event_pool() {
     for (auto e : events)
       cudaEventDestroy(e);
-    events.clear();
   }
 
   cudaEvent_t get_event() {
@@ -100,7 +101,6 @@ static void BM_EventCreate(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * events_size);
 
   destroy_events(events);
-  events.clear();
 }
 BENCHMARK_TEMPLATE(BM_EventCreate, true)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_EventCreate, false)->Unit(benchmark::kMicrosecond);
@@ -122,10 +122,11 @@ static void BM_EventPool(benchmark::State &state) {
 BENCHMARK_TEMPLATE(BM_EventPool, true)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_EventPool, false)->Unit(benchmark::kMicrosecond);
 
-// Benchmark recording events with or without timing
+// Benchmark recording events with or without timing, and varying number of
+// threads
 template <bool timing = true>
-static void BM_EventRecord(benchmark::State &state) {
-  std::vector<cudaEvent_t> events(events_size);
+static void BM_EventRecord_MT(benchmark::State &state) {
+  thread_local std::vector<cudaEvent_t> events(events_size);
   create_events<timing>(events);
 
   cudaStream_t stream = 0;
@@ -133,13 +134,37 @@ static void BM_EventRecord(benchmark::State &state) {
   for (auto _ : state) {
     record_events(events, stream);
   }
-  state.SetItemsProcessed(state.iterations() * events_size);
+
+  if (state.thread_index == 0)
+    state.SetItemsProcessed(state.iterations() * events_size * state.threads);
 
   destroy_events(events);
-  events.clear();
 }
-BENCHMARK_TEMPLATE(BM_EventRecord, true)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(BM_EventRecord, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_EventRecord_MT, true)
+    ->Unit(benchmark::kMicrosecond)
+    ->Threads(1);
+BENCHMARK_TEMPLATE(BM_EventRecord_MT, true)
+    ->Unit(benchmark::kMicrosecond)
+    ->Threads(2);
+BENCHMARK_TEMPLATE(BM_EventRecord_MT, true)
+    ->Unit(benchmark::kMicrosecond)
+    ->Threads(4);
+BENCHMARK_TEMPLATE(BM_EventRecord_MT, true)
+    ->Unit(benchmark::kMicrosecond)
+    ->Threads(8);
+
+BENCHMARK_TEMPLATE(BM_EventRecord_MT, false)
+    ->Unit(benchmark::kMicrosecond)
+    ->Threads(1);
+BENCHMARK_TEMPLATE(BM_EventRecord_MT, false)
+    ->Unit(benchmark::kMicrosecond)
+    ->Threads(2);
+BENCHMARK_TEMPLATE(BM_EventRecord_MT, false)
+    ->Unit(benchmark::kMicrosecond)
+    ->Threads(4);
+BENCHMARK_TEMPLATE(BM_EventRecord_MT, false)
+    ->Unit(benchmark::kMicrosecond)
+    ->Threads(8);
 
 // Benchmark querying events with or without timing
 template <bool timing = true>
@@ -159,7 +184,6 @@ static void BM_EventQuery(benchmark::State &state) {
 
   destroy_events(events);
   cudaStreamDestroy(streamA);
-  events.clear();
 }
 BENCHMARK_TEMPLATE(BM_EventQuery, true)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_EventQuery, false)->Unit(benchmark::kMicrosecond);
@@ -184,7 +208,6 @@ static void BM_StreamWaitEvent(benchmark::State &state) {
   destroy_events(events);
   cudaStreamDestroy(streamA);
   cudaStreamDestroy(streamB);
-  events.clear();
 }
 BENCHMARK_TEMPLATE(BM_StreamWaitEvent, true)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_StreamWaitEvent, false)->Unit(benchmark::kMicrosecond);
@@ -203,8 +226,6 @@ static void BM_EventDestroy(benchmark::State &state) {
     destroy_events(events);
   }
   state.SetItemsProcessed(state.iterations() * events_size);
-
-  events.clear();
 }
 BENCHMARK_TEMPLATE(BM_EventDestroy, true)->Unit(benchmark::kMicrosecond);
 BENCHMARK_TEMPLATE(BM_EventDestroy, false)->Unit(benchmark::kMicrosecond);
