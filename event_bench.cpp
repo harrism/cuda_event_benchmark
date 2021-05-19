@@ -215,19 +215,31 @@ BENCHMARK_TEMPLATE(BM_StreamWaitEvent, false)->Unit(benchmark::kMicrosecond);
 // Benchmark destroying events with or without timing
 template <bool timing = true>
 static void BM_EventDestroy(benchmark::State &state) {
-  std::vector<cudaEvent_t> events(events_size);
-  create_events<timing>(events);
-
   cudaStream_t stream = 0;
-
-  record_events(events, stream);
+  std::vector<cudaEvent_t> events(events_size);
 
   for (auto _ : state) {
+    create_events<timing>(events);
+    record_events(events, stream);
+
+    // only time event destruction
+    auto start = std::chrono::high_resolution_clock::now();
     destroy_events(events);
+    auto end = std::chrono::high_resolution_clock::now();
+
+    auto elapsed_seconds =
+        std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+    state.SetIterationTime(elapsed_seconds.count());
   }
+
   state.SetItemsProcessed(state.iterations() * events_size);
 }
-BENCHMARK_TEMPLATE(BM_EventDestroy, true)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(BM_EventDestroy, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_EventDestroy, true)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+BENCHMARK_TEMPLATE(BM_EventDestroy, false)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 
 BENCHMARK_MAIN();
