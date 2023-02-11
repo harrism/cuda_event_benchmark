@@ -17,6 +17,7 @@
 #include <benchmark/benchmark.h>
 
 #include <cuda_runtime_api.h>
+#include <nvtx3/nvToolsExt.h>
 
 #include <iostream>
 #include <list>
@@ -24,6 +25,39 @@
 #include <vector>
 
 constexpr std::size_t events_size{1000};
+
+template <bool timing = true>
+void range_push() {
+  if (timing)
+    nvtxRangePush("loop range");  // Range for iteration
+  else
+    {}
+}
+
+template <bool timing = true>
+void range_pop() {
+  if (timing)
+    nvtxRangePop();  // End the inner range
+  else
+    {}
+}
+
+// Benchmark creating events with or without timing
+template <bool timing = true>
+static void BM_NVTXRange(benchmark::State &state) {
+  // ensure we don't time context load on first benchmark
+  cudaFree(0);
+
+  for (auto _ : state) {
+      range_push<timing>();
+      std::this_thread::sleep_for(std::chrono::nanoseconds{1});
+      range_pop<timing>();
+  }
+  state.SetItemsProcessed(state.iterations());
+
+}
+BENCHMARK_TEMPLATE(BM_NVTXRange, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_NVTXRange, false)->Unit(benchmark::kMicrosecond);
 
 template <bool timing = true>
 void create_events(std::vector<cudaEvent_t> &events) {
@@ -135,8 +169,8 @@ static void BM_EventRecord_MT(benchmark::State &state) {
     record_events(events, stream);
   }
 
-  if (state.thread_index == 0)
-    state.SetItemsProcessed(state.iterations() * events_size * state.threads);
+  if (state.thread_index() == 0)
+    state.SetItemsProcessed(state.iterations() * events_size * state.threads());
 
   destroy_events(events);
 }
