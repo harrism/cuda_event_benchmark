@@ -33,7 +33,6 @@ if(GBENCH_CONFIG)
     message(FATAL_ERROR "Configuring Google Benchmark failed: " ${GBENCH_CONFIG})
 endif(GBENCH_CONFIG)
 
-set(PARALLEL_BUILD -j)
 if($ENV{PARALLEL_LEVEL})
     set(NUM_JOBS $ENV{PARALLEL_LEVEL})
     set(PARALLEL_BUILD "${PARALLEL_BUILD}${NUM_JOBS}")
