@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, NVIDIA CORPORATION.
+ * Copyright (c) 2020-2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,41 +18,33 @@
 
 #include <cuda_runtime_api.h>
 
-#include <iostream>
 #include <list>
 #include <thread>
-#include <vector>
-
-constexpr std::size_t events_size{1000};
 
 template <bool timing = true>
-void create_events(std::vector<cudaEvent_t> &events) {
-  for (int i = 0; i < events.size(); i++) {
-    if (timing)
-      cudaEventCreate(&events[i]);
-    else
-      cudaEventCreateWithFlags(&events[i], cudaEventDisableTiming);
-  }
+cudaEvent_t create_event() {
+  cudaEvent_t event;
+  if (timing)
+    cudaEventCreate(&event);
+  else
+    cudaEventCreateWithFlags(&event, cudaEventDisableTiming);
+  return event;
 }
 
-void record_events(std::vector<cudaEvent_t> &events, cudaStream_t stream) {
-  for (auto const &e : events)
-    cudaEventRecord(e, stream);
+void record_event(cudaEvent_t event, cudaStream_t stream) {
+  cudaEventRecord(event, stream);
 }
 
-void query_events(std::vector<cudaEvent_t> &events) {
-  for (auto const &e : events)
-    cudaEventQuery(e);
+void query_event(cudaEvent_t event) {
+  cudaEventQuery(event);
 }
 
-void await_events(std::vector<cudaEvent_t> &events, cudaStream_t stream) {
-  for (auto const &e : events)
-    cudaStreamWaitEvent(stream, e, 0);
+void await_event(cudaEvent_t event, cudaStream_t stream) {
+  cudaStreamWaitEvent(stream, event, 0);
 }
 
-template <typename Container> void destroy_events(Container events) {
-  for (auto const &e : events)
-    cudaEventDestroy(e);
+void destroy_event(cudaEvent_t event) {
+    cudaEventDestroy(event);
 }
 
 template <bool timing = true> struct event_pool {
@@ -90,20 +82,29 @@ private:
 // Benchmark creating events with or without timing
 template <bool timing = true>
 static void BM_EventCreate(benchmark::State &state) {
-  std::vector<cudaEvent_t> events(events_size);
-
   // ensure we don't time context load on first benchmark
   cudaFree(0);
 
   for (auto _ : state) {
-    create_events<timing>(events);
-  }
-  state.SetItemsProcessed(state.iterations() * events_size);
+    // only time event creation
+    auto start = std::chrono::high_resolution_clock::now();
+    auto event = create_event<timing>();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed_seconds =
+    std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+    state.SetIterationTime(elapsed_seconds.count());
 
-  destroy_events(events);
+    destroy_event(event);
+  }
+
+  state.SetItemsProcessed(state.iterations());
 }
-BENCHMARK_TEMPLATE(BM_EventCreate, true)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(BM_EventCreate, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_EventCreate, true)
+  ->Unit(benchmark::kNanosecond)
+  ->UseManualTime();
+BENCHMARK_TEMPLATE(BM_EventCreate, false)
+  ->Unit(benchmark::kNanosecond)
+  ->UseManualTime();
 
 // Benchmark cost of moving events between STL containers
 // This is to simulate the cost of getting an event from a pool (vs. creating))
@@ -112,134 +113,160 @@ static void BM_EventPool(benchmark::State &state) {
   event_pool<timing> pool;
 
   for (auto _ : state) {
-    for (int i = 0; i < events_size; i++) {
-      cudaEvent_t e = pool.get_event();
-      pool.return_event(e);
-    }
+    cudaEvent_t e = pool.get_event();
+    pool.return_event(e);
   }
-  state.SetItemsProcessed(state.iterations() * events_size);
+  state.SetItemsProcessed(state.iterations());
 }
-BENCHMARK_TEMPLATE(BM_EventPool, true)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(BM_EventPool, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_EventPool, true)->Unit(benchmark::kNanosecond);
+BENCHMARK_TEMPLATE(BM_EventPool, false)->Unit(benchmark::kNanosecond);
 
-// Benchmark recording events with or without timing, and varying number of
-// threads
+// Benchmark recording events with or without timing, and varying number of threads
 template <bool timing = true>
 static void BM_EventRecord_MT(benchmark::State &state) {
-  thread_local std::vector<cudaEvent_t> events(events_size);
-  create_events<timing>(events);
-
   cudaStream_t stream = 0;
 
   for (auto _ : state) {
-    record_events(events, stream);
+    auto event = create_event<timing>();
+
+    // only time event creation
+    auto start = std::chrono::high_resolution_clock::now();
+    record_event(event, stream);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed_seconds =
+    std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+    state.SetIterationTime(elapsed_seconds.count());
+
+    destroy_event(event);
   }
 
   if (state.thread_index == 0)
-    state.SetItemsProcessed(state.iterations() * events_size * state.threads);
-
-  destroy_events(events);
+    state.SetItemsProcessed(state.iterations() * state.threads);
 }
 BENCHMARK_TEMPLATE(BM_EventRecord_MT, true)
-    ->Unit(benchmark::kMicrosecond)
-    ->Threads(1);
+    ->Unit(benchmark::kNanosecond)
+    ->Threads(1)
+    ->UseManualTime();
 BENCHMARK_TEMPLATE(BM_EventRecord_MT, true)
-    ->Unit(benchmark::kMicrosecond)
-    ->Threads(2);
+    ->Unit(benchmark::kNanosecond)
+    ->Threads(2)
+    ->UseManualTime();
 BENCHMARK_TEMPLATE(BM_EventRecord_MT, true)
-    ->Unit(benchmark::kMicrosecond)
-    ->Threads(4);
+    ->Unit(benchmark::kNanosecond)
+    ->Threads(4)
+    ->UseManualTime();
 BENCHMARK_TEMPLATE(BM_EventRecord_MT, true)
-    ->Unit(benchmark::kMicrosecond)
-    ->Threads(8);
+    ->Unit(benchmark::kNanosecond)
+    ->Threads(8)
+    ->UseManualTime();
 
 BENCHMARK_TEMPLATE(BM_EventRecord_MT, false)
-    ->Unit(benchmark::kMicrosecond)
-    ->Threads(1);
+    ->Unit(benchmark::kNanosecond)
+    ->Threads(1)
+    ->UseManualTime();
 BENCHMARK_TEMPLATE(BM_EventRecord_MT, false)
-    ->Unit(benchmark::kMicrosecond)
-    ->Threads(2);
+    ->Unit(benchmark::kNanosecond)
+    ->Threads(2)
+    ->UseManualTime();
 BENCHMARK_TEMPLATE(BM_EventRecord_MT, false)
-    ->Unit(benchmark::kMicrosecond)
-    ->Threads(4);
+    ->Unit(benchmark::kNanosecond)
+    ->Threads(4)
+    ->UseManualTime();
 BENCHMARK_TEMPLATE(BM_EventRecord_MT, false)
-    ->Unit(benchmark::kMicrosecond)
-    ->Threads(8);
+    ->Unit(benchmark::kNanosecond)
+    ->Threads(8)
+    ->UseManualTime();
 
 // Benchmark querying events with or without timing
 template <bool timing = true>
 static void BM_EventQuery(benchmark::State &state) {
-  std::vector<cudaEvent_t> events(events_size);
-  create_events<true>(events);
-
   cudaStream_t streamA{};
   cudaStreamCreate(&streamA);
 
-  record_events(events, streamA);
-
   for (auto _ : state) {
-    query_events(events);
-  }
-  state.SetItemsProcessed(state.iterations() * events_size);
+    auto event = create_event<timing>();
 
-  destroy_events(events);
+    record_event(event, streamA);
+
+    // only time event query
+    auto start = std::chrono::high_resolution_clock::now();
+    query_event(event);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed_seconds =
+      std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+    state.SetIterationTime(elapsed_seconds.count());
+
+    destroy_event(event);
+  }
+  state.SetItemsProcessed(state.iterations());
+
   cudaStreamDestroy(streamA);
 }
-BENCHMARK_TEMPLATE(BM_EventQuery, true)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(BM_EventQuery, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_EventQuery, true)
+  ->Unit(benchmark::kNanosecond)
+  ->UseManualTime();
+BENCHMARK_TEMPLATE(BM_EventQuery, false)
+  ->Unit(benchmark::kNanosecond)
+  ->UseManualTime();
 
 // Benchmark querying events with or without timing
 template <bool timing = true>
 static void BM_StreamWaitEvent(benchmark::State &state) {
-  std::vector<cudaEvent_t> events(events_size);
-  create_events<true>(events);
-
   cudaStream_t streamA{}, streamB{};
   cudaStreamCreate(&streamA);
   cudaStreamCreate(&streamB);
 
-  record_events(events, streamA);
-
   for (auto _ : state) {
-    await_events(events, streamB);
-  }
-  state.SetItemsProcessed(state.iterations() * events_size);
+    auto event = create_event<timing>();
 
-  destroy_events(events);
+    record_event(event, streamA);
+
+    // only time event query
+    auto start = std::chrono::high_resolution_clock::now();
+    await_event(event, streamB);
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed_seconds =
+      std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+    state.SetIterationTime(elapsed_seconds.count());
+
+    destroy_event(event);
+  }
+  state.SetItemsProcessed(state.iterations());
+
   cudaStreamDestroy(streamA);
   cudaStreamDestroy(streamB);
 }
-BENCHMARK_TEMPLATE(BM_StreamWaitEvent, true)->Unit(benchmark::kMicrosecond);
-BENCHMARK_TEMPLATE(BM_StreamWaitEvent, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(BM_StreamWaitEvent, true)
+  ->Unit(benchmark::kNanosecond)
+  ->UseManualTime();
+BENCHMARK_TEMPLATE(BM_StreamWaitEvent, false)
+  ->Unit(benchmark::kNanosecond)
+  ->UseManualTime();
 
 // Benchmark destroying events with or without timing
 template <bool timing = true>
 static void BM_EventDestroy(benchmark::State &state) {
   cudaStream_t stream = 0;
-  std::vector<cudaEvent_t> events(events_size);
 
   for (auto _ : state) {
-    create_events<timing>(events);
-    record_events(events, stream);
+    auto event = create_event<timing>();
 
     // only time event destruction
     auto start = std::chrono::high_resolution_clock::now();
-    destroy_events(events);
+    destroy_event(event);
     auto end = std::chrono::high_resolution_clock::now();
-
     auto elapsed_seconds =
-        std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
+      std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
     state.SetIterationTime(elapsed_seconds.count());
   }
 
-  state.SetItemsProcessed(state.iterations() * events_size);
+  state.SetItemsProcessed(state.iterations());
 }
 BENCHMARK_TEMPLATE(BM_EventDestroy, true)
-    ->Unit(benchmark::kMicrosecond)
+    ->Unit(benchmark::kNanosecond)
     ->UseManualTime();
 BENCHMARK_TEMPLATE(BM_EventDestroy, false)
-    ->Unit(benchmark::kMicrosecond)
+    ->Unit(benchmark::kNanosecond)
     ->UseManualTime();
 
 BENCHMARK_MAIN();
