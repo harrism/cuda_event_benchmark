@@ -135,8 +135,8 @@ static void BM_EventRecord_MT(benchmark::State &state) {
     record_events(events, stream);
   }
 
-  if (state.thread_index == 0)
-    state.SetItemsProcessed(state.iterations() * events_size * state.threads);
+  if (state.thread_index() == 0)
+    state.SetItemsProcessed(state.iterations() * events_size * state.threads());
 
   destroy_events(events);
 }
