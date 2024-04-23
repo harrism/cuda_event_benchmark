@@ -140,8 +140,10 @@ static void BM_EventRecord_MT(benchmark::State &state) {
     destroy_event(event);
   }
 
-  if (state.thread_index == 0)
-    state.SetItemsProcessed(state.iterations() * state.threads);
+  if (state.thread_index() == 0)
+    state.SetItemsProcessed(state.iterations() * state.threads());
+
+  destroy_events(events);
 }
 BENCHMARK_TEMPLATE(BM_EventRecord_MT, true)
     ->Unit(benchmark::kNanosecond)
